@@ -3,11 +3,22 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/Button';
+import { useRealtimeCollection } from '@/hooks/useFirestore';
+import { PHILIPPINE_CHAPTERS } from '@/utils/helpers';
 
 export default function HomePage() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [cursorSide, setCursorSide] = useState<'left' | 'right' | 'center'>('center');
+
+  // Fetch real-time data from Firestore
+  const { data: volunteers } = useRealtimeCollection('volunteers');
+  const { data: projects } = useRealtimeCollection('projects');
+
+  // Calculate dynamic stats
+  const activeVolunteers = volunteers.filter((v: any) => v.status === 'approved').length;
+  const totalChapters = PHILIPPINE_CHAPTERS.length;
+  const totalProjects = projects.length;
+  const livesImpacted = activeVolunteers * 50; // Estimate: each volunteer impacts ~50 lives
 
   const slides = [
     {
@@ -60,53 +71,10 @@ export default function HomePage() {
     setTimeout(() => setIsAutoPlaying(true), 10000);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLElement>) => {
-    const { left, width } = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - left;
-    const halfWidth = width / 2;
-    
-    // Determine which side the cursor is on
-    if (x < halfWidth * 0.3) {
-      setCursorSide('left');
-    } else if (x > halfWidth * 1.7) {
-      setCursorSide('right');
-    } else {
-      setCursorSide('center');
-    }
-  };
-
-  const handleClick = (e: React.MouseEvent<HTMLElement>) => {
-    // Don't navigate if clicking on buttons or links
-    const target = e.target as HTMLElement;
-    if (target.tagName === 'BUTTON' || target.tagName === 'A' || target.closest('button') || target.closest('a')) {
-      return;
-    }
-
-    const { left, width } = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - left;
-    const halfWidth = width / 2;
-    
-    if (x < halfWidth) {
-      prevSlide();
-    } else {
-      nextSlide();
-    }
-  };
-
-  const getCursorClass = () => {
-    if (cursorSide === 'left') return 'cursor-w-resize';
-    if (cursorSide === 'right') return 'cursor-e-resize';
-    return 'cursor-default';
-  };
-
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900">
       {/* Hero Section with Image Carousel */}
-      <section 
-        className={`relative h-screen overflow-hidden group ${getCursorClass()}`}
-        onMouseMove={handleMouseMove}
-        onClick={handleClick}
-      >
+      <section className="relative h-screen overflow-hidden">
         {/* Carousel Images */}
         <div className="absolute inset-0">
           {slides.map((slide, index) => (
@@ -128,7 +96,7 @@ export default function HomePage() {
         </div>
 
         {/* Content Overlay */}
-        <div className="relative h-full flex items-center pointer-events-none">
+        <div className="relative h-full flex items-center">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
             <div className="max-w-2xl">
               {/* Animated Content */}
@@ -144,7 +112,7 @@ export default function HomePage() {
                   <div className="mb-4 inline-block">
                     <div className="flex items-center gap-2 bg-yspOrange-500/90 backdrop-blur-sm px-4 py-2 rounded-full">
                       <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                      <span className="text-white text-sm font-medium">Youth Serve Philippines</span>
+                      <span className="text-white text-sm font-medium">Youth Service Philippines</span>
                     </div>
                   </div>
                   
@@ -156,14 +124,14 @@ export default function HomePage() {
                     {slide.subtitle}
                   </p>
                   
-                  <div className="flex flex-col sm:flex-row gap-4 pointer-events-auto">
+                  <div className="flex flex-col sm:flex-row gap-4">
                     <Link href="/auth/register">
                       <Button 
                         size="lg" 
-                        className="bg-white text-gray-900 hover:bg-gray-100 shadow-2xl border-0 group/btn"
+                        className="bg-white text-gray-900 hover:bg-gray-100 shadow-2xl border-0 group"
                       >
                         <span>Start Volunteering</span>
-                        <svg className="w-5 h-5 group-hover/btn:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                         </svg>
                       </Button>
@@ -184,25 +152,37 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Navigation Arrow Indicators (show on hover) */}
-        <div className={`absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white transition-all pointer-events-none ${
-          cursorSide === 'left' ? 'opacity-100' : 'opacity-0'
-        }`}>
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
+        {/* Navigation Areas with Hover Arrows */}
+        {/* Left Half - Click Area */}
+        <div
+          onClick={prevSlide}
+          className="absolute left-0 top-0 bottom-0 w-1/2 cursor-pointer z-10 group/left"
+          aria-label="Previous slide"
+        >
+          {/* Left Arrow - Shows on Hover */}
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white transition-all opacity-0 group-hover/left:opacity-100">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </div>
         </div>
-        
-        <div className={`absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white transition-all pointer-events-none ${
-          cursorSide === 'right' ? 'opacity-100' : 'opacity-0'
-        }`}>
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
+
+        {/* Right Half - Click Area */}
+        <div
+          onClick={nextSlide}
+          className="absolute right-0 top-0 bottom-0 w-1/2 cursor-pointer z-10 group/right"
+          aria-label="Next slide"
+        >
+          {/* Right Arrow - Shows on Hover */}
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white transition-all opacity-0 group-hover/right:opacity-100">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
         </div>
 
         {/* Slide Indicators */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-10 pointer-events-auto">
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-10">
           {slides.map((_, index) => (
             <button
               key={index}
@@ -216,13 +196,6 @@ export default function HomePage() {
             />
           ))}
         </div>
-
-        {/* Scroll Indicator */}
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 animate-bounce hidden md:block pointer-events-none">
-          <svg className="w-6 h-6 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-          </svg>
-        </div>
       </section>
 
       {/* Stats Section */}
@@ -230,10 +203,10 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {[
-              { value: '500+', label: 'Active Volunteers' },
-              { value: '10+', label: 'Chapters' },
-              { value: '150+', label: 'Projects' },
-              { value: '10K+', label: 'Lives Impacted' },
+              { value: `${activeVolunteers}+`, label: 'Active Volunteers' },
+              { value: `${totalChapters}+`, label: 'Chapters' },
+              { value: `${totalProjects}+`, label: 'Projects' },
+              { value: `${livesImpacted >= 1000 ? Math.floor(livesImpacted / 1000) + 'K' : livesImpacted}+`, label: 'Lives Impacted' },
             ].map((stat, index) => (
               <div 
                 key={index} 
@@ -344,7 +317,7 @@ export default function HomePage() {
                   <span className="text-white font-bold text-xl">YSP</span>
                 </div>
                 <div>
-                  <div className="text-xl font-bold">Youth Serve Philippines</div>
+                  <div className="text-xl font-bold">Youth Service Philippines</div>
                   <div className="text-sm text-gray-400">Empowering Communities</div>
                 </div>
               </div>
@@ -374,7 +347,7 @@ export default function HomePage() {
           
           <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-gray-400 text-sm">
-              &copy; {new Date().getFullYear()} Youth Serve Philippines. All rights reserved.
+              &copy; {new Date().getFullYear()} Youth Service Philippines. All rights reserved.
             </p>
             <div className="flex gap-4">
               <a href="#" className="text-gray-400 hover:text-white transition-colors">

@@ -45,11 +45,13 @@ export const Navbar: React.FC = () => {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center space-x-3 group">
-            <div className="w-10 h-10 bg-gradient-to-br from-yspOrange-500 to-yspOrange-600 rounded-lg flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
-              <span className="text-white font-bold text-xl">YSP</span>
-            </div>
+            <img 
+              src="/logo.png" 
+              alt="YSP Logo" 
+              className="w-10 h-10 object-contain"
+            />
             <span className="text-xl font-bold text-gray-900 dark:text-white hidden sm:block">
-              Youth Serve Philippines
+              Youth Service Philippines
             </span>
           </Link>
 
