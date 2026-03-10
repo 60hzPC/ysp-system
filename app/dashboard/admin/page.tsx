@@ -8,19 +8,25 @@ import { Card, StatCard } from '@/components/Card';
 import { Sidebar, MobileSidebar } from '@/components/Sidebar';
 import { Button } from '@/components/Button';
 import { Input, TextArea, Select } from '@/components/Input';
-import { Modal } from '@/components/Modal';
+import { Modal, ConfirmModal } from '@/components/Modal';
 import { useToast } from '@/hooks/useToast';
 import { useRouter } from 'next/navigation';
-import { PHILIPPINE_CHAPTERS, VOLUNTEER_STATUS } from '@/utils/helpers';
+import { PHILIPPINE_CHAPTERS, PROJECT_STATUS, VOLUNTEER_STATUS } from '@/utils/helpers';
+import { formatDate } from '@/utils/helpers';
 
 export default function AdminDashboard() {
   const { user, userProfile, loading: authLoading } = useAuth();
   const router = useRouter();
   const toast = useToast();
-  const { createDocument, updateDocument } = useFirestore();
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const { createDocument, updateDocument, deleteDocument } = useFirestore();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'volunteers' | 'projects'>('overview');
-  const [showCreateProjectModal, setShowCreateProjectModal] = useState<boolean>(false);
+  const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
+  const [showEditProjectModal, setShowEditProjectModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<any>(null);
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [selectedVolunteer, setSelectedVolunteer] = useState<any>(null);
 
   // Fetch data in real-time
   const { data: volunteers, loading: volunteersLoading } = useRealtimeCollection('volunteers');
@@ -32,11 +38,14 @@ export default function AdminDashboard() {
     description: '',
     chapter: '',
     status: 'open',
+    startDate: '',
+    endDate: '',
   });
   const [projectImage, setProjectImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
-  const [isCreatingProject, setIsCreatingProject] = useState<boolean>(false);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [editImagePreview, setEditImagePreview] = useState<string>('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   // Redirect if not authenticated or not admin
   React.useEffect(() => {
@@ -60,24 +69,50 @@ export default function AdminDashboard() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Check file size (max 100MB)
-      if (file.size > 100 * 1024 * 1024) {
-        toast.error('Image size should be less than 100MB');
-        return;
-      }
-
-      // Check file type
+      // Validate file type
       if (!file.type.startsWith('image/')) {
         toast.error('Please select an image file');
         return;
       }
 
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Image size should be less than 5MB');
+        return;
+      }
+
       setProjectImage(file);
-      
+
       // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleEditImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast.error('Please select an image file');
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Image size should be less than 5MB');
+        return;
+      }
+
+      setProjectImage(file);
+
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditImagePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -92,72 +127,57 @@ export default function AdminDashboard() {
     }
 
     setIsCreatingProject(true);
-    setUploadProgress(0);
 
     try {
       let imageUrl = '';
 
-      // Upload image to Cloudinary if selected
+      // Upload image to Cloudinary if provided
       if (projectImage) {
-        try {
-          setUploadProgress(30);
-          
-          // Cloudinary upload - No API key needed for unsigned uploads!
-          const cloudName = 'dbeqtr18g'; // Use 'demo' for testing, or your own cloud name
-          const uploadPreset = 'ysp_projects'; // Default unsigned preset
-          
-          const formData = new FormData();
-          formData.append('file', projectImage);
-          formData.append('upload_preset', uploadPreset);
-          formData.append('folder', 'ysp-projects');
+        const cloudName = 'dbeqtr18g'; // Replace with your Cloudinary cloud name
+        const uploadPreset = 'ysp_projects'; // Replace with your upload preset
 
-          const response = await fetch(
-            `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-            {
-              method: 'POST',
-              body: formData,
-            }
-          );
+        const formData = new FormData();
+        formData.append('file', projectImage);
+        formData.append('upload_preset', uploadPreset);
+        formData.append('folder', 'ysp-projects');
 
-          if (response.ok) {
-            const data = await response.json();
-            imageUrl = data.secure_url;
-            setUploadProgress(70);
-            toast.success('Image uploaded successfully!');
-          } else {
-            console.error('Cloudinary upload failed');
-            toast.warning('Image upload failed. Creating project without image.');
+        const uploadResponse = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: 'POST',
+            body: formData,
           }
-        } catch (uploadError) {
-          console.error('Error uploading image:', uploadError);
-          toast.warning('Image upload failed. Creating project without image.');
-          // Continue creating project without image
+        );
+
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to upload image');
         }
+
+        const uploadData = await uploadResponse.json();
+        imageUrl = uploadData.secure_url;
       }
 
-      setUploadProgress(80);
-
-      // Create project (with or without image)
       await createDocument('projects', {
         name: projectForm.name,
         description: projectForm.description,
         chapter: projectForm.chapter,
         status: projectForm.status,
+        startDate: projectForm.startDate,
+        endDate: projectForm.endDate,
         image: imageUrl,
         applicants: [],
         assignedVolunteers: [],
       });
 
-      setUploadProgress(100);
       toast.success('Project created successfully!');
       setShowCreateProjectModal(false);
-      setProjectForm({ name: '', description: '', chapter: '', status: 'open' });
+      setProjectForm({ name: '', description: '', chapter: '', status: 'open', startDate: '', endDate: '' });
       setProjectImage(null);
       setImagePreview('');
       setUploadProgress(0);
     } catch (error) {
       console.error('Error creating project:', error);
-      toast.error('Failed to create project. Please try again.');
+      toast.error('Failed to create project');
     } finally {
       setIsCreatingProject(false);
     }
@@ -170,9 +190,104 @@ export default function AdminDashboard() {
       });
 
       toast.success(`Volunteer ${approve ? 'approved' : 'rejected'} successfully!`);
+      setShowApproveModal(false);
+      setSelectedVolunteer(null);
     } catch (error) {
       console.error('Error updating volunteer status:', error);
       toast.error('Failed to update volunteer status');
+    }
+  };
+
+  const handleEditProject = (project: any) => {
+    setSelectedProject(project);
+    setProjectForm({
+      name: project.name,
+      description: project.description,
+      chapter: project.chapter,
+      status: project.status,
+      startDate: project.startDate || '',
+      endDate: project.endDate || '',
+    });
+    setEditImagePreview(project.image || '');
+    setProjectImage(null);
+    setShowEditProjectModal(true);
+  };
+
+  const handleUpdateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!projectForm.name || !projectForm.description || !projectForm.chapter || !selectedProject) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    setIsCreatingProject(true);
+
+    try {
+      let imageUrl = selectedProject.image || '';
+
+      // Upload new image to Cloudinary if provided
+      if (projectImage) {
+        const cloudName = 'demo'; // Replace with your Cloudinary cloud name
+        const uploadPreset = 'ml_default'; // Replace with your upload preset
+
+        const formData = new FormData();
+        formData.append('file', projectImage);
+        formData.append('upload_preset', uploadPreset);
+        formData.append('folder', 'ysp-projects');
+
+        const uploadResponse = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: 'POST',
+            body: formData,
+          }
+        );
+
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to upload image');
+        }
+
+        const uploadData = await uploadResponse.json();
+        imageUrl = uploadData.secure_url;
+      }
+
+      await updateDocument('projects', selectedProject.id, {
+        name: projectForm.name,
+        description: projectForm.description,
+        chapter: projectForm.chapter,
+        status: projectForm.status,
+        startDate: projectForm.startDate,
+        endDate: projectForm.endDate,
+        image: imageUrl,
+      });
+
+      toast.success('Project updated successfully!');
+      setShowEditProjectModal(false);
+      setSelectedProject(null);
+      setProjectForm({ name: '', description: '', chapter: '', status: 'open', startDate: '', endDate: '' });
+      setProjectImage(null);
+      setEditImagePreview('');
+    } catch (error) {
+      console.error('Error updating project:', error);
+      toast.error('Failed to update project');
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!selectedProject) return;
+
+    try {
+      await deleteDocument('projects', selectedProject.id);
+
+      toast.success('Project deleted successfully!');
+      setShowDeleteConfirm(false);
+      setSelectedProject(null);
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      toast.error('Failed to delete project');
     }
   };
 
@@ -505,10 +620,10 @@ export default function AdminDashboard() {
               {projects.map((project: any) => (
                 <Card key={project.id}>
                   <div className="flex items-start justify-between mb-4">
-                    <div>
+                    <div className="flex-1">
                       <h4 className="text-xl font-bold text-gray-900 dark:text-white mb-1">{project.name}</h4>
                       <p className="text-gray-600 dark:text-gray-400 mb-2">{project.description}</p>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-2">
                         <span className="flex items-center">
                           <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -523,6 +638,52 @@ export default function AdminDashboard() {
                           {project.status}
                         </span>
                       </div>
+                      {/* Date Info */}
+                      {(project.startDate || project.endDate) && (
+                        <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                          {project.startDate && (
+                            <span className="flex items-center">
+                              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              {new Date(project.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          )}
+                          {project.endDate && (
+                            <span className="flex items-center">
+                              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              Due: {new Date(project.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-2 ml-4">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleEditProject(project)}
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => {
+                          setSelectedProject(project);
+                          setShowDeleteConfirm(true);
+                        }}
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Delete
+                      </Button>
                     </div>
                   </div>
 
@@ -596,17 +757,11 @@ export default function AdminDashboard() {
       {/* Create Project Modal */}
       <Modal
         isOpen={showCreateProjectModal}
-        onClose={() => {
-          setShowCreateProjectModal(false);
-          setProjectForm({ name: '', description: '', chapter: '', status: 'open' });
-          setProjectImage(null);
-          setImagePreview('');
-          setUploadProgress(0);
-        }}
+        onClose={() => setShowCreateProjectModal(false)}
         title="Create New Project"
         footer={
           <>
-            <Button variant="outline" onClick={() => setShowCreateProjectModal(false)} disabled={isCreatingProject}>
+            <Button variant="outline" onClick={() => setShowCreateProjectModal(false)}>
               Cancel
             </Button>
             <Button onClick={handleCreateProject} isLoading={isCreatingProject}>
@@ -652,69 +807,236 @@ export default function AdminDashboard() {
             fullWidth
           />
 
+          {/* Date Fields */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label="Start Date"
+              type="date"
+              value={projectForm.startDate}
+              onChange={(e) => setProjectForm({ ...projectForm, startDate: e.target.value })}
+              fullWidth
+              required
+            />
+            <Input
+              label="End Date (Volunteers needed by)"
+              type="date"
+              value={projectForm.endDate}
+              onChange={(e) => setProjectForm({ ...projectForm, endDate: e.target.value })}
+              fullWidth
+              required
+            />
+          </div>
+
           {/* Image Upload */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Project Image (Optional)
             </label>
-            <div className="space-y-3">
-              {imagePreview ? (
-                <div className="relative">
-                  <img 
-                    src={imagePreview} 
-                    alt="Preview" 
-                    className="w-full h-48 object-cover rounded-lg border-2 border-gray-300 dark:border-gray-600"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProjectImage(null);
-                      setImagePreview('');
-                    }}
-                    className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ) : (
-                <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-lg cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <svg className="w-10 h-10 mb-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    <p className="mb-2 text-sm text-gray-500 dark:text-gray-400">
-                      <span className="font-semibold">Click to upload</span> or drag and drop
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      PNG, JPG or WEBP (MAX. 100MB)
-                    </p>
-                  </div>
-                  <input 
-                    type="file" 
-                    className="hidden" 
+            <div className="mt-1">
+              <div className="flex items-center justify-center w-full">
+                <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-lg cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                  {imagePreview ? (
+                    <div className="relative w-full h-full">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setProjectImage(null);
+                          setImagePreview('');
+                        }}
+                        className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <svg className="w-12 h-12 mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <p className="mb-2 text-sm text-gray-500 dark:text-gray-400">
+                        <span className="font-semibold">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        PNG, JPG, GIF up to 5MB
+                      </p>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    className="hidden"
                     accept="image/*"
                     onChange={handleImageChange}
                   />
                 </label>
-              )}
-              
-              {uploadProgress > 0 && uploadProgress < 100 && (
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                  <div 
-                    className="bg-yspOrange-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-              )}
+              </div>
             </div>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              Upload an image to make your project more attractive to volunteers!
-            </p>
           </div>
         </form>
       </Modal>
+
+      {/* Edit Project Modal */}
+      <Modal
+        isOpen={showEditProjectModal}
+        onClose={() => {
+          setShowEditProjectModal(false);
+          setSelectedProject(null);
+          setProjectForm({ name: '', description: '', chapter: '', status: 'open', startDate: '', endDate: '' });
+          setEditImagePreview('');
+          setProjectImage(null);
+        }}
+        title="Edit Project"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowEditProjectModal(false)} disabled={isCreatingProject}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateProject} isLoading={isCreatingProject}>
+              Update Project
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleUpdateProject} className="space-y-4">
+          <Input
+            label="Project Name"
+            value={projectForm.name}
+            onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
+            placeholder="e.g., Tree Planting - Cebu"
+            fullWidth
+            required
+          />
+          <TextArea
+            label="Description"
+            value={projectForm.description}
+            onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })}
+            placeholder="Describe the project and its goals..."
+            rows={4}
+            fullWidth
+            required
+          />
+          <Select
+            label="Chapter"
+            value={projectForm.chapter}
+            onChange={(e) => setProjectForm({ ...projectForm, chapter: e.target.value })}
+            options={chapterOptions}
+            fullWidth
+            required
+          />
+          <Select
+            label="Status"
+            value={projectForm.status}
+            onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}
+            options={[
+              { value: 'open', label: 'Open (Volunteers can apply)' },
+              { value: 'closed', label: 'Closed (No new applications)' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+            fullWidth
+          />
+
+          {/* Date Fields */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label="Start Date"
+              type="date"
+              value={projectForm.startDate}
+              onChange={(e) => setProjectForm({ ...projectForm, startDate: e.target.value })}
+              fullWidth
+              required
+            />
+            <Input
+              label="End Date (Volunteers needed by)"
+              type="date"
+              value={projectForm.endDate}
+              onChange={(e) => setProjectForm({ ...projectForm, endDate: e.target.value })}
+              fullWidth
+              required
+            />
+          </div>
+
+          {/* Image Upload/Edit */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Project Image
+            </label>
+            <div className="mt-1">
+              <div className="flex items-center justify-center w-full">
+                <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-lg cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                  {editImagePreview ? (
+                    <div className="relative w-full h-full">
+                      <img
+                        src={editImagePreview}
+                        alt="Preview"
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setProjectImage(null);
+                          setEditImagePreview('');
+                        }}
+                        className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                      <div className="absolute bottom-2 left-2 bg-black/50 text-white px-2 py-1 rounded text-xs">
+                        {projectImage ? 'New image selected' : 'Current image'}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <svg className="w-12 h-12 mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <p className="mb-2 text-sm text-gray-500 dark:text-gray-400">
+                        <span className="font-semibold">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        PNG, JPG, GIF up to 5MB
+                      </p>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleEditImageChange}
+                  />
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                Upload a new image to replace the current one, or leave as is to keep the existing image.
+              </p>
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Project Confirmation */}
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => {
+          setShowDeleteConfirm(false);
+          setSelectedProject(null);
+        }}
+        onConfirm={handleDeleteProject}
+        title="Delete Project"
+        message={`Are you sure you want to delete "${selectedProject?.name}"? This action cannot be undone. All applications and assignments will be lost.`}
+        confirmText="Delete Project"
+        cancelText="Cancel"
+      />
     </div>
   );
 }

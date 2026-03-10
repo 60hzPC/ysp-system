@@ -96,7 +96,7 @@ export default function HomePage() {
         </div>
 
         {/* Content Overlay */}
-        <div className="relative h-full flex items-center">
+        <div className="relative h-full flex items-center z-10">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
             <div className="max-w-2xl">
               {/* Animated Content */}
@@ -124,7 +124,7 @@ export default function HomePage() {
                     {slide.subtitle}
                   </p>
                   
-                  <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex flex-col sm:flex-row gap-4 relative z-30">
                     <Link href="/auth/register">
                       <Button 
                         size="lg" 
@@ -156,7 +156,7 @@ export default function HomePage() {
         {/* Left Half - Click Area */}
         <div
           onClick={prevSlide}
-          className="absolute left-0 top-0 bottom-0 w-1/2 cursor-pointer z-10 group/left"
+          className="absolute left-0 top-0 bottom-0 w-1/4 cursor-pointer z-10 group/left"
           aria-label="Previous slide"
         >
           {/* Left Arrow - Shows on Hover */}
@@ -170,7 +170,7 @@ export default function HomePage() {
         {/* Right Half - Click Area */}
         <div
           onClick={nextSlide}
-          className="absolute right-0 top-0 bottom-0 w-1/2 cursor-pointer z-10 group/right"
+          className="absolute right-0 top-0 bottom-0 w-1/4 cursor-pointer z-10 group/right"
           aria-label="Next slide"
         >
           {/* Right Arrow - Shows on Hover */}
@@ -296,7 +296,7 @@ export default function HomePage() {
           <Link href="/auth/register">
             <Button 
               size="lg" 
-              className="bg-white text-yspOrange-600 hover:bg-gray-100 shadow-2xl border-0 group px-8"
+              className="bg-white/90 text-yspOrange-600 hover:bg-white shadow-2xl border-0 group px-8 py-4 rounded-xl transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-white/40"
             >
               <span className="text-lg">Get Started</span>
               <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">

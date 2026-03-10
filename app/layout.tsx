@@ -19,7 +19,7 @@ const poppins = Poppins({
 })
 
 export const metadata: Metadata = {
-  title: 'YSP Volunteer Management System',
+  title: 'Youth Service Philippines - Volunteer Management Platform',
   description: 'Youth Service Philippines - Volunteer Management Platform',
   keywords: ['volunteers', 'Philippines', 'youth', 'community service', 'YSP'],
 }
